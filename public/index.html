@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KlassenBattle KI</title><style>
+*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#f5f7ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:850px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center}.logo{font-size:25px;font-weight:900}
+.muted{color:#9aa6c2}.card{background:#141b2f;border:1px solid #27304a;border-radius:20px;padding:20px;margin-top:14px;box-shadow:0 10px 35px #0003}
+h1{font-size:30px;margin:4px 0 10px}h2{margin:0 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button,input,textarea{font:inherit}button{border:0;border-radius:13px;padding:14px 16px;font-weight:800;cursor:pointer;background:#5865f2;color:white;min-height:50px}
+button.secondary{background:#252e48}input,textarea{width:100%;background:#0d1425;border:1px solid #303b5b;color:white;border-radius:13px;padding:14px;margin:6px 0 10px;font-size:16px}textarea{min-height:110px;resize:vertical}
+.code{font-size:52px;font-weight:1000;letter-spacing:8px;text-align:center;padding:15px;background:#0d1425;border-radius:16px}
+.player{display:flex;justify-content:space-between;padding:12px;border-bottom:1px solid #29334d}.question{font-size:28px;font-weight:800;margin:14px 0}.pill{display:inline-block;background:#202a45;border-radius:999px;padding:7px 11px;margin:3px}.ok{color:#65e6a1}.err{color:#ff7c91}
+@media(max-width:650px){.wrap{padding:10px}.grid{grid-template-columns:1fr}.card{padding:15px;border-radius:16px}.code{font-size:38px;letter-spacing:5px}.question{font-size:23px}button{width:100%}}
+</style></head><body><div class="wrap"><div class="top"><div class="logo">⚡ KlassenBattle KI</div><div id="status" class="muted">Online</div></div><div id="app"></div></div>
+<script src="/socket.io/socket.io.js"></script><script>
+const s=io();let role=null,room=null;const app=document.getElementById("app"),statusEl=document.getElementById("status");
+function home(){app.innerHTML=`<div class="card"><h1>Was möchtest du machen?</h1><div class="grid"><button onclick="teacher()">👨‍🏫 Lehrer</button><button class="secondary" onclick="student()">👨‍🎓 Schüler</button></div></div>`}
+function teacher(){role="teacher";s.emit("teacher:create");app.innerHTML='<div class="card"><h1>Lehrer</h1><p>Raum wird erstellt…</p></div>'}
+function student(){role="student";app.innerHTML=`<div class="card"><h1>Schüler</h1><input id="code" placeholder="Raumcode" autocapitalize="characters"><input id="name" placeholder="Dein Name"><button onclick="join()">Beitreten</button><p id="msg" class="err"></p></div>`}
+function join(){s.emit("student:join",{code:code.value.trim(),name:name.value.trim()})}
+s.on("teacher:created",r=>{room=r;teacherUI()});
+function teacherUI(){app.innerHTML=`<div class="card"><h1>Lehrer-Dashboard</h1><p class="muted">Raumcode:</p><div class="code">${room.code}</div><h2 style="margin-top:20px">Frage hinzufügen</h2><input id="q" placeholder="Frage"><textarea id="sol" placeholder="Musterlösung / erwartete Lösung"></textarea><button onclick="addQ()">➕ Frage hinzufügen</button><div id="questions"></div><h2 style="margin-top:22px">Schüler</h2><div id="players"></div></div>`;renderTeacher()}
+function addQ(){if(!q.value.trim())return;s.emit("teacher:addQuestion",{code:room.code,text:q.value,solution:sol.value});q.value='';sol.value=''}
+function renderTeacher(){if(!room)return;let qh='';for(let i=0;i<room.questionCount;i++)qh+=`<button class="secondary" style="margin:4px 0" onclick="startQ(${i})">▶ Frage ${i+1}</button>`;document.getElementById("questions").innerHTML=qh||'<p class="muted">Noch keine Fragen.</p>';document.getElementById("players").innerHTML=room.players.length?room.players.sort((a,b)=>b.score-a.score).map((p,i)=>`<div class="player"><span>${i+1}. ${esc(p.name)} ${p.answered?'✅':''}</span><b>${p.score}</b></div>`).join(''):'<p class="muted">Noch niemand.</p>'}
+function startQ(i){s.emit("teacher:start",{code:room.code,index:i})}
+s.on("room:update",r=>{room=r;if(role==="teacher"){if(!document.getElementById("players"))teacherUI();else renderTeacher()}else if(role==="student")renderBoard()});
+s.on("question:started",d=>{if(role==="student")studentQuestion(d);if(role==="teacher"){let old=document.getElementById("live");if(old)old.remove();let e=document.createElement("div");e.id="live";e.className="card";e.innerHTML=`<h2>Aktuelle Frage</h2><div class="question">${esc(d.text)}</div>`;app.prepend(e)}})
+function studentQuestion(d){app.innerHTML=`<div class="card"><span class="pill">Frage ${d.number}/${d.total}</span><div class="question">${esc(d.text)}</div><textarea id="ans" placeholder="Deine Antwort…"></textarea><button onclick="answer()">Antwort absenden</button><p id="result"></p></div><div class="card"><h2>🏆 Rangliste</h2><div id="board"></div></div>`;renderBoard()}
+function answer(){s.emit("student:answer",{code:room.code,answer:ans.value});ans.disabled=true}
+s.on("answer:result",r=>{document.getElementById("result").innerHTML=`<span class="ok">🤖 ${r.ai?'KI':'Demo'}-Bewertung: +${r.points} Punkte<br>${esc(r.feedback)}</span>`})
+function renderBoard(){const e=document.getElementById("board");if(e&&room)e.innerHTML=room.players.sort((a,b)=>b.score-a.score).map((p,i)=>`<div class="player"><span>${i+1}. ${esc(p.name)}</span><b>${p.score}</b></div>`).join('')}
+s.on("error:msg",m=>{const e=document.getElementById("msg");if(e)e.textContent=m});s.on("room:closed",()=>{app.innerHTML='<div class="card"><h1>Raum geschlossen</h1><button onclick="home()">Startseite</button></div>'});
+s.on("connect",()=>statusEl.textContent="🟢 Online");s.on("disconnect",()=>statusEl.textContent="🔴 Offline");
+function esc(x){return String(x).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}home();
+</script></body></html>
